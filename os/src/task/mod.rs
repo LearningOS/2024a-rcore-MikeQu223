@@ -17,6 +17,7 @@ mod task;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::syscall::process::TaskInfo;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -54,6 +55,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_info: TaskInfo::new(),
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -102,6 +104,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
+        // 打印task_info
+        // println!("task_info: {:?}", inner.tasks[current].task_info);
     }
 
     /// Find next task to run and return task id.
@@ -133,6 +137,26 @@ impl TaskManager {
             // go back to user mode
         } else {
             panic!("All applications completed!");
+        }
+    }
+
+    /// 调用计数器
+    fn syscall_counter(&self, syscall_id: usize) {
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info.syscall_times[syscall_id] += 1;
+    }
+
+    /// 获取task_info
+    fn get_task_info(&self) -> TaskInfo {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task = &mut inner.tasks[current];
+        
+        TaskInfo {
+            status: task.task_status,
+            syscall_times: task.task_info.syscall_times,
+            time: task.task_info.update_time(),
         }
     }
 }
@@ -168,4 +192,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Count the syscall
+pub fn syscall_counter(syscall_id: usize) {
+    TASK_MANAGER.syscall_counter(syscall_id);
+}
+
+/// Get the task info
+pub fn get_task_info() -> TaskInfo {
+    TASK_MANAGER.get_task_info()
 }
