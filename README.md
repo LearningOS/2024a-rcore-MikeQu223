@@ -45,8 +45,8 @@ Notice: `<Number>` is chosen from `[3,4,5,6,8]`
 $ git clone git@github.com:LearningOS/2024a-rcore-<YourName>
 $ cd 2024a-rcore-<YourName>
 $ rm -rf ci-user
-$ git clone git@github.com:LearningOS/rCore-Tutorial-Checker-2024A ci-user
-$ git clone git@github.com:LearningOS/rCore-Tutorial-Test-2024A ci-user/user
+$ git clone https://github.com/LearningOS/rCore-Tutorial-Checker-2024A ci-user
+$ git clone https://github.com/LearningOS/rCore-Tutorial-Test-2024A ci-user/user
 $ git checkout ch<Number>
 $ cd ci-user
 $ make test CHAPTER=<Number>

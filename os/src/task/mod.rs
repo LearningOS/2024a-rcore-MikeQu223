@@ -17,10 +17,9 @@ mod task;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
-use crate::syscall::process::TaskInfo;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, TaskInfo};
 
 pub use context::TaskContext;
 
@@ -83,6 +82,8 @@ impl TaskManager {
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
+        task0.task_info.start();
+        // println!("task0 start time: {}", task0.task_info.start_time);
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -97,6 +98,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Ready;
+        // 更新任务信息
+        inner.tasks[current].task_info.status = TaskStatus::Ready;
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -104,8 +107,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
-        // 打印task_info
-        // println!("task_info: {:?}", inner.tasks[current].task_info);
+        // 更新任务信息
+        inner.tasks[current].task_info.status = TaskStatus::Exited;
     }
 
     /// Find next task to run and return task id.
@@ -127,6 +130,8 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            inner.tasks[next].task_info.start();
+            // println!("task{} start time: {}", next, inner.tasks[next].task_info.start_time);
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -145,20 +150,19 @@ impl TaskManager {
         let mut inner = TASK_MANAGER.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_info.syscall_times[syscall_id] += 1;
+        drop(inner);
     }
 
     /// 获取task_info
     fn get_task_info(&self) -> TaskInfo {
-        let mut inner = self.inner.exclusive_access();
+        let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        let task = &mut inner.tasks[current];
-        
-        TaskInfo {
-            status: task.task_status,
-            syscall_times: task.task_info.syscall_times,
-            time: task.task_info.update_time(),
-        }
+        let task_info = inner.tasks[current].task_info;
+        drop(inner);
+        task_info
     }
+
+    
 }
 
 /// Run the first task in task list.
