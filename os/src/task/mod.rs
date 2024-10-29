@@ -20,7 +20,7 @@ use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskInfo, TaskStatus};
 
 pub use context::TaskContext;
 
@@ -80,6 +80,7 @@ impl TaskManager {
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+        next_task.task_info.start();
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -94,6 +95,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
         inner.tasks[cur].task_status = TaskStatus::Ready;
+        // 更新task info
+        inner.tasks[cur].task_info.status = TaskStatus::Ready;
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -101,6 +104,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
         inner.tasks[cur].task_status = TaskStatus::Exited;
+        // 更新task info
+        inner.tasks[cur].task_info.status = TaskStatus::Exited;
     }
 
     /// Find next task to run and return task id.
@@ -141,6 +146,7 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            inner.tasks[current].task_info.start();
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -152,6 +158,23 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// 调用计数器
+    fn syscall_counter(&self, syscall_id: usize) {
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info.syscall_times[syscall_id] += 1;
+        drop(inner);
+    }
+
+    /// 获取task_info
+    fn get_task_info(&self) -> TaskInfo {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task_info = inner.tasks[current].task_info;
+        drop(inner);
+        task_info
     }
 }
 
@@ -201,4 +224,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Count the syscall
+pub fn syscall_counter(syscall_id: usize) {
+    TASK_MANAGER.syscall_counter(syscall_id);
+}
+
+/// Get the task info
+pub fn get_task_info() -> TaskInfo {
+    TASK_MANAGER.get_task_info()
 }

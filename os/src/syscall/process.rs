@@ -1,9 +1,11 @@
 //! Process management syscalls
 use crate::{
-    config::MAX_SYSCALL_NUM,
+    mm::translated_byte_buffer,
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+        change_program_brk, current_user_token, exit_current_and_run_next, get_task_info,
+        suspend_current_and_run_next, TaskInfo,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
@@ -11,17 +13,6 @@ use crate::{
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
-}
-
-/// Task information
-#[allow(dead_code)]
-pub struct TaskInfo {
-    /// Task status in it's life cycle
-    status: TaskStatus,
-    /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
-    /// Total running time of task
-    time: usize,
 }
 
 /// task exits and submit an exit code
@@ -38,20 +29,47 @@ pub fn sys_yield() -> isize {
     0
 }
 
+// copy to user space
+pub fn copy_to_user_space<T>(dest: *mut T, src: &T) {
+    let size = core::mem::size_of::<T>();
+    let src_ptr = src as *const T as *const u8;
+    let dest_ptr = dest as *mut T as *mut u8;
+
+    let tar = translated_byte_buffer(current_user_token(), dest_ptr, size);
+
+    for (i, dst) in tar.into_iter().enumerate() {
+        unsafe {
+            core::ptr::copy_nonoverlapping(src_ptr.add(i), dst.as_mut_ptr(), dst.len());
+        }
+    }
+}
+
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    if _ts.is_null() {
+        error!("sys_get_time: ts is null");
+        return -1;
+    }
+    let time_us = get_time_us();
+    let time_val = TimeVal {
+        sec: time_us / 1_000_000,
+        usec: time_us % 1_000_000,
+    };
+    copy_to_user_space(_ts, &time_val);
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_task_info");
+    let task_info = get_task_info();
+    copy_to_user_space(_ti, &task_info);
+    0
 }
 
 // YOUR JOB: Implement mmap.
