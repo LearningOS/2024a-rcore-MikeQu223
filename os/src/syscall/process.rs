@@ -1,9 +1,9 @@
 //! Process management syscalls
 use crate::{
-    mm::translated_byte_buffer,
+    config::PAGE_SIZE,
+    mm::{translated_byte_buffer, MapPermission, VPNRangeOuter, VirtAddr, VirtPageNum},
     task::{
-        change_program_brk, current_user_token, exit_current_and_run_next, get_task_info,
-        suspend_current_and_run_next, TaskInfo,
+        change_program_brk, check_vpn_exists, current_user_token, do_mmap, exit_current_and_run_next, get_task_info, suspend_current_and_run_next, TaskInfo
     },
     timer::get_time_us,
 };
@@ -72,10 +72,65 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     0
 }
 
-// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+// 校验和翻译port
+fn check_and_translate_port(port: usize) -> Option<MapPermission> {
+    if port & !0x7 != 0 {
+        // 其他位必须为0
+        return None;
+    }
+    if port & 0x7 == 0 {
+        // 至少要有一位有效
+        return None;
+    }
+
+    // 翻译
+    let mut flags = MapPermission::U; // 用户态
+    if port & 0x1 != 0 {
+        flags |= MapPermission::R;
+    } // 可读
+    if port & 0x2 != 0 {
+        flags |= MapPermission::W;
+    } // 可写
+    if port & 0x4 != 0 {
+        flags |= MapPermission::X;
+    } // 可执行
+    Some(flags)
+}
+
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+
+    // 检查页对齐和非法长度
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    if len == 0 {
+        return -1;
+    }
+
+    // 翻译port
+    let perm = match check_and_translate_port(port) {
+        Some(flags) => flags,
+        None => return -1,
+    };
+
+    // 检查虚拟地址是否已经被映射
+    let end = start + len;
+    let s_vpn: VirtPageNum = VirtAddr::from(start).floor().into();
+    let e_vpn: VirtPageNum = VirtAddr::from(end).ceil().into();
+    for cur_vpn in VPNRangeOuter::new(s_vpn, e_vpn) {
+        info!("range: {start} to {end}, cur_vpn: {:?}", cur_vpn);
+        if check_vpn_exists(cur_vpn) {
+            return -1;
+        }
+    }
+
+    // do_mmap
+    if !do_mmap(start, len, perm) {
+        return -1;
+    }
+
+    0
 }
 
 // YOUR JOB: Implement munmap.

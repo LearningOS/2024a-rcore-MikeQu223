@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtPageNum};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -176,6 +177,17 @@ impl TaskManager {
         drop(inner);
         task_info
     }
+
+    /// 映射内存
+    fn do_mmap(&self, start: usize, size: usize, perm: MapPermission) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let end = start + size;
+        let current_task_index = inner.current_task;
+        inner.tasks[current_task_index]
+            .memory_set
+            .insert_framed_area(start.into(), end.into(), perm);
+        true
+    }
 }
 
 /// Run the first task in task list.
@@ -234,4 +246,20 @@ pub fn syscall_counter(syscall_id: usize) {
 /// Get the task info
 pub fn get_task_info() -> TaskInfo {
     TASK_MANAGER.get_task_info()
+}
+
+/// 检查虚拟页号是否被映射
+pub fn check_vpn_exists(vpn: VirtPageNum) -> bool {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let ref task = inner.tasks[inner.current_task];
+    if let Some(pte) = task.memory_set.translate(vpn) {
+        pte.is_valid()
+    } else {
+        false
+    }
+}
+
+/// 映射内存
+pub fn do_mmap(start: usize, size: usize, perm: MapPermission) -> bool {
+    TASK_MANAGER.do_mmap(start, size, perm)
 }
