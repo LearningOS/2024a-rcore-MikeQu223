@@ -188,6 +188,18 @@ impl TaskManager {
             .insert_framed_area(start.into(), end.into(), perm);
         true
     }
+
+    /// 取消映射内存
+    fn do_munmap(&self, vpn: VirtPageNum) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let current_task_index = inner.current_task;
+        let memory_set = &mut inner.tasks[current_task_index].memory_set;
+
+        // 移除指定的虚拟内存区域
+        memory_set.unmap(vpn);
+        true
+         
+    }
 }
 
 /// Run the first task in task list.
@@ -262,4 +274,9 @@ pub fn check_vpn_exists(vpn: VirtPageNum) -> bool {
 /// 映射内存
 pub fn do_mmap(start: usize, size: usize, perm: MapPermission) -> bool {
     TASK_MANAGER.do_mmap(start, size, perm)
+}
+
+/// 取消映射内存
+pub fn do_munmap(vpn: VirtPageNum) -> bool {
+    TASK_MANAGER.do_munmap(vpn)
 }

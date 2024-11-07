@@ -3,7 +3,7 @@ use crate::{
     config::PAGE_SIZE,
     mm::{translated_byte_buffer, MapPermission, VPNRangeOuter, VirtAddr, VirtPageNum},
     task::{
-        change_program_brk, check_vpn_exists, current_user_token, do_mmap, exit_current_and_run_next, get_task_info, suspend_current_and_run_next, TaskInfo
+        change_program_brk, check_vpn_exists, current_user_token, do_mmap, do_munmap, exit_current_and_run_next, get_task_info, suspend_current_and_run_next, TaskInfo
     },
     timer::get_time_us,
 };
@@ -133,11 +133,37 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     0
 }
 
-// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap");
+
+    // 检查页对齐和非法长度
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    if len == 0 {
+        return -1;
+    }
+
+    // 计算虚拟地址范围
+    let end = start + len;
+    let s_vpn: VirtPageNum = VirtAddr::from(start).floor().into();
+    let e_vpn: VirtPageNum = VirtAddr::from(end).ceil().into();
+
+    // 检查已经被映射
+    for cur_vpn in VPNRangeOuter::new(s_vpn, e_vpn) {
+        if !check_vpn_exists(cur_vpn) {
+            return -1; 
+        }
+        // do_munmap
+        if !do_munmap(cur_vpn) {
+            return -1;
+        }
+    }
+
+    0
 }
+
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel: sys_sbrk");

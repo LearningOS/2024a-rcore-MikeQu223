@@ -63,6 +63,10 @@ impl MemorySet {
             None,
         );
     }
+    /// unmap
+    pub fn unmap(&mut self, vpn: VirtPageNum) {
+        self.page_table.unmap(vpn);
+    }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
